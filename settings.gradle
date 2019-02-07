@@ -1,0 +1,5 @@
+rootProject.name = 'map-reduce'
+include 'core'
+include 'master'
+include 'example-app'
+
