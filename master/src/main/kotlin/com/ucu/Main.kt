@@ -1,11 +1,7 @@
 package com.ucu
 
-import kotlinx.coroutines.runBlocking
-import java.io.BufferedReader
+import kotlinx.coroutines.*
 import java.io.File
-import java.io.InputStreamReader
-import java.io.ObjectInputStream
-import java.net.ServerSocket
 
 
 object Main {
@@ -14,16 +10,25 @@ object Main {
         println("Running master")
 
 //        val file = File("/Users/sasha/programming/map-reduce/example-app/build/classes/java/main/")
-//        val jar = File("/Users/sasha/programming/map-reduce/example-app/build/libs/example-app-1.jar")
-//
-//        val mapper = CodeLoader(jar).loadMapper<String, String, Int>("com.ucu.SizeCounter")
-//        val result = mapper?.map("key", "long text")
+        val jar = File("/Users/sasha/programming/map-reduce/example-app/build/libs/example-app-1.jar")
+        val data = jar.readBytes()
 
-
-        val server = SlaveListener(12000)
+        val server = Master(12000)
         println("Waiting for connection")
-        runBlocking {
+
+        val listener = GlobalScope.async {
             server.listen()
+        }
+
+        GlobalScope.launch {
+            while (true) {
+                delay(2000)
+                server.map(data)
+            }
+        }
+
+        runBlocking {
+            listener.await()
         }
         println("Finished")
 //        val reader = ObjectInputStream(socket.getInputStream())

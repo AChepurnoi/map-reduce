@@ -65,18 +65,20 @@ class Slave(val socket: Socket) {
         alive = false
     }
 
-    suspend fun map(id: String): Response {
-        log.info("[Test]: Mapping $id")
-        kotlin.runCatching {
-            out.writeObject(Request(id))
+    suspend fun map(request: Request): Result<Response> {
+        log.info("[Test]: Mapping ${request.id}")
+        val result = kotlin.runCatching {
+            out.writeObject(request)
         }.onFailure { terminate() }
 
-        while (!response.containsKey(id) && alive) {
+        if (result.isFailure) return Result.failure(result.exceptionOrNull()!!)
+
+//        @TODO possible inf loop here
+        while (!response.containsKey(request.id) && alive) {
             delay(250)
         }
 
-        return response.remove(id) ?: throw RuntimeException("Internal error")
-
+        return Result.success(response.remove(request.id) ?: throw RuntimeException("Internal error"))
 
     }
 }

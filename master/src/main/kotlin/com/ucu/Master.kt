@@ -1,11 +1,14 @@
 package com.ucu
 
 import kotlinx.coroutines.*
+import java.io.File
 import java.net.ServerSocket
+import java.util.*
 
 
-class SlaveListener(val port: Int) {
+class Master(port: Int) {
 
+    val tmpFolder = File("/Users/sasha/programming/map-reduce/tmp/")
 
     private var running = true
     private val server = ServerSocket(port).apply {
@@ -27,13 +30,37 @@ class SlaveListener(val port: Int) {
     }
 
 
+    suspend fun map(code: ByteArray) {
+        if (slaves.isEmpty()) return
+        val id = UUID.randomUUID().toString()
+
+        val tmpFile = File.createTempFile("master", id, tmpFolder).also { it.deleteOnExit() }
+        tmpFile.writeBytes(code)
+        val reducer = CodeLoader(tmpFile).loadReducer<String, Int, Int>("com.ucu.SizeReducer")!!
+
+        val results = slaves
+                .map { GlobalScope.async { it.map(Request(id, code, "com.ucu.SizeCounter")) } }
+                .map { it.await() }.toList()
+
+        val groupped = results
+                .flatMap { it.data.toList() }
+                .groupBy({ it.first }, { it.second })
+                .toMap()
+
+        val result = groupped.flatMap { reducer.reduce(it.key, it.value) }.toList()
+        println(result)
+
+        tmpFile.delete()
+
+    }
+
     suspend fun listen() {
         while (running) {
             println("[Listen]: Trying to accept connection")
             delay(50)
             kotlin.runCatching { server.accept() }.onSuccess {
                 val slave = Slave(it)
-                println("[Listen]: Slave created")
+                println("[Listen]: Slave connected")
                 synchronized(slaves) {
                     slaves.add(slave)
                 }
