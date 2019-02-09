@@ -34,7 +34,6 @@ object Main {
                 }
             }
         }
-
     }
 
     fun handleRequest(req: Request): Response {

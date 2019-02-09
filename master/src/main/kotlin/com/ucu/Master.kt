@@ -21,7 +21,8 @@ class Master(port: Int) {
     private suspend fun slaveMonitor() {
         while (running) {
             delay(5000)
-            slaves.forEach { println("[Watch]: Slave alive=${it.alive}") }
+            println("[Watch]: Connected: ${slaves.size} | Alive: ${slaves.filter { it.alive }.size}")
+//            @TODO replace it
             synchronized(slaves) {
                 slaves.filterNot { it.alive }
                         .forEach { slaves.remove(it) }
@@ -34,15 +35,21 @@ class Master(port: Int) {
         if (slaves.isEmpty()) return
         val id = UUID.randomUUID().toString()
 
-        val tmpFile = File.createTempFile("master", id, tmpFolder).also { it.deleteOnExit() }
-        tmpFile.writeBytes(code)
-        val reducer = CodeLoader(tmpFile).loadReducer<String, Int, Int>("com.ucu.SizeReducer")!!
-
+        val jarFile = File.createTempFile("master", id, tmpFolder).also {
+            it.deleteOnExit()
+            it.writeBytes(code)
+        }
+        val reducer = CodeLoader(jarFile).loadReducer<String, Int, Int>("com.ucu.SizeReducer")!!
         val results = slaves
                 .map { GlobalScope.async { it.map(Request(id, code, "com.ucu.SizeCounter")) } }
                 .map { it.await() }.toList()
 
+        if (results.any { it.isFailure }) {
+            println("One or more node failed to handle request")
+        }
+
         val groupped = results
+                .map { it.getOrThrow() }
                 .flatMap { it.data.toList() }
                 .groupBy({ it.first }, { it.second })
                 .toMap()
@@ -50,13 +57,13 @@ class Master(port: Int) {
         val result = groupped.flatMap { reducer.reduce(it.key, it.value) }.toList()
         println(result)
 
-        tmpFile.delete()
+        jarFile.delete()
 
     }
 
     suspend fun listen() {
         while (running) {
-            println("[Listen]: Trying to accept connection")
+//            println("[Listen]: Trying to accept connection")
             delay(50)
             kotlin.runCatching { server.accept() }.onSuccess {
                 val slave = Slave(it)

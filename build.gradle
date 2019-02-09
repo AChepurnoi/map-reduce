@@ -15,7 +15,7 @@ repositories {
 subprojects {
 
     apply plugin: "java"
-
+    apply plugin: "kotlin"
     group 'ucu'
     version '1'
 
@@ -32,5 +32,16 @@ subprojects {
         testCompile group: 'junit', name: 'junit', version: '4.12'
     }
 
+    compileKotlin {
+        kotlinOptions.jvmTarget = "1.8"
+        kotlinOptions.freeCompilerArgs = ["-Xallow-result-return-type"]
+
+
+    }
+    compileTestKotlin {
+        kotlinOptions.jvmTarget = "1.8"
+        kotlinOptions.freeCompilerArgs = ["-Xallow-result-return-type"]
+    }
 
 }
+

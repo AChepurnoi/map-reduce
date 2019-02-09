@@ -11,18 +11,18 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.logging.Logger
 
 
-class Slave(val socket: Socket) {
+class Slave(s: Socket) {
 
+    private val socket = s.apply {
+        soTimeout = 100
+    }
     private val log = Logger.getLogger(javaClass.name)
     private val out = ObjectOutputStream(socket.getOutputStream()).also { it.flush() }
     private val input = ObjectInputStream(socket.getInputStream())
     private val response: MutableMap<String, Response> = ConcurrentHashMap()
-    var alive = true
+    public var alive = true
         private set
 
-    init {
-        socket.soTimeout = 100
-    }
 
     private var listener: Job = GlobalScope.launch { listener() }
     private var heartbeat: Job = GlobalScope.launch { heartbeat() }
@@ -30,7 +30,7 @@ class Slave(val socket: Socket) {
 
     private suspend fun listener() {
         while (socket.isConnected && alive) {
-            delay(500)
+            delay(100)
             kotlin.runCatching { input.readObject() as? Message }.getOrNull()
                     ?.let { handle(it) }
         }
@@ -38,7 +38,7 @@ class Slave(val socket: Socket) {
 
     private suspend fun heartbeat() {
         while (socket.isConnected && alive) {
-            delay(500)
+            delay(100)
             kotlin.runCatching { out.writeObject(Ping()) }
                     .onFailure { terminate() }
         }
@@ -47,7 +47,7 @@ class Slave(val socket: Socket) {
     private fun handle(message: Message) {
         when (message) {
             is Ping -> {
-                log.info("[Handle]: Ping")
+//                log.info("[Handle]: Ping received")
             }
             is Response -> {
                 response[message.id] = message
@@ -56,20 +56,19 @@ class Slave(val socket: Socket) {
     }
 
     private fun terminate() {
-        log.info("[Slave]: Terminating slave")
         kotlin.runCatching { listener.cancel() }
         kotlin.runCatching { heartbeat.cancel() }
         kotlin.runCatching { input.close() }
         kotlin.runCatching { out.close() }
         kotlin.runCatching { socket.close() }
         alive = false
+        println("[Slave]: Error happened. Slave is terminated")
     }
 
     suspend fun map(request: Request): Result<Response> {
+
         log.info("[Test]: Mapping ${request.id}")
-        val result = kotlin.runCatching {
-            out.writeObject(request)
-        }.onFailure { terminate() }
+        val result = kotlin.runCatching { out.writeObject(request) }.onFailure { terminate() }
 
         if (result.isFailure) return Result.failure(result.exceptionOrNull()!!)
 
@@ -78,7 +77,9 @@ class Slave(val socket: Socket) {
             delay(250)
         }
 
-        return Result.success(response.remove(request.id) ?: throw RuntimeException("Internal error"))
+        return kotlin.runCatching {
+            response.remove(request.id) ?: throw RuntimeException("Intenal error. No response")
+        }
 
     }
 }
