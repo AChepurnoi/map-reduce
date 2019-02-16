@@ -1,9 +1,8 @@
 package com.ucu
 
-import kotlinx.coroutines.GlobalScope
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.*
+import kotlinx.coroutines.channels.Channel.Factory.CONFLATED
 import java.io.ObjectInputStream
 import java.io.ObjectOutputStream
 import java.net.Socket
@@ -11,75 +10,62 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.logging.Logger
 
 
+@ObsoleteCoroutinesApi
+@UseExperimental(ExperimentalCoroutinesApi::class)
 class Slave(s: Socket) {
-
-    private val socket = s.apply {
-        soTimeout = 100
-    }
-    private val log = Logger.getLogger(javaClass.name)
+    private val socket = s.apply { soTimeout = 100 }
     private val out = ObjectOutputStream(socket.getOutputStream()).also { it.flush() }
     private val input = ObjectInputStream(socket.getInputStream())
-    private val response: MutableMap<String, Response> = ConcurrentHashMap()
-    public var alive = true
-        private set
+    private val outputChannel = Channel<Message>()
+    private val mailbox = ConflatedBroadcastChannel<Message>()
+    private inline fun <reified T> subscribeTo() = mailbox.openSubscription().filter { it is T }.map { it as T }
 
+    private var alive = true
+    fun isAlive() = alive
 
-    private var listener: Job = GlobalScope.launch { listener() }
-    private var heartbeat: Job = GlobalScope.launch { heartbeat() }
-
-
-    private suspend fun listener() {
+    private val sender = GlobalScope.launch {
         while (socket.isConnected && alive) {
-            delay(100)
-            kotlin.runCatching { input.readObject() as? Message }.getOrNull()
-                    ?.let { handle(it) }
-        }
-    }
-
-    private suspend fun heartbeat() {
-        while (socket.isConnected && alive) {
-            delay(100)
-            kotlin.runCatching { out.writeObject(Ping()) }
+            val message = outputChannel.receive()
+            kotlin.runCatching { out.writeObject(message) }
                     .onFailure { terminate() }
         }
     }
 
-    private fun handle(message: Message) {
-        when (message) {
-            is Ping -> {
-//                log.info("[Handle]: Ping received")
-            }
-            is Response -> {
-                response[message.id] = message
-            }
+    private val listener: Job = GlobalScope.launch {
+        while (socket.isConnected && alive) {
+            delay(100)
+            kotlin.runCatching { input.readObject() as Message }
+                    .onSuccess { mailbox.send(it) }
+                    .onFailure { println("[Listener]: Error $it") }
         }
     }
 
-    private fun terminate() {
+    private val heartbeat: Job = GlobalScope.launch {
+        while (socket.isConnected && alive) {
+            delay(100)
+            outputChannel.send(Ping())
+        }
+    }
+
+    fun terminate() {
         kotlin.runCatching { listener.cancel() }
         kotlin.runCatching { heartbeat.cancel() }
+        kotlin.runCatching { sender.cancel() }
         kotlin.runCatching { input.close() }
         kotlin.runCatching { out.close() }
         kotlin.runCatching { socket.close() }
         alive = false
-        println("[Slave]: Error happened. Slave is terminated")
+        println("[Slave]: Slave is terminated")
     }
 
-    suspend fun map(request: Request): Result<Response> {
-
-        log.info("[Test]: Mapping ${request.id}")
-        val result = kotlin.runCatching { out.writeObject(request) }.onFailure { terminate() }
-
-        if (result.isFailure) return Result.failure(result.exceptionOrNull()!!)
-
-//        @TODO possible inf loop here
-        while (!response.containsKey(request.id) && alive) {
-            delay(250)
+    suspend fun <K, V> map(request: Request): Result<Response<K, V>> {
+        if (!alive) return Result.failure(RuntimeException("Slave is dead"))
+        println("[SlaveMap]: Mapping ${request.id}")
+        val response = withTimeout(5000) {
+            outputChannel.send(request)
+            subscribeTo<Response<K, V>>().filter { it.id == request.id }.first()
         }
-
-        return kotlin.runCatching {
-            response.remove(request.id) ?: throw RuntimeException("Intenal error. No response")
-        }
+        return Result.success(response)
 
     }
 }

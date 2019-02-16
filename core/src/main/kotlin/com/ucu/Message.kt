@@ -8,5 +8,5 @@ class Ping: Message()
 
 
 class Request(val id: String, val code: ByteArray, val mapper: String): Message()
-class Response(val id: String, val data: Map<String, Int>): Message()
+class Response<K, V>(val id: String, val data: Map<K, V>): Message()
 

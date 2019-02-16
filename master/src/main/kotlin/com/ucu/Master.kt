@@ -6,64 +6,67 @@ import java.net.ServerSocket
 import java.util.*
 
 
+@ObsoleteCoroutinesApi
 class Master(port: Int) {
 
-    val tmpFolder = File("/Users/sasha/programming/map-reduce/tmp/")
+    private val tmpFolder = File(Configuration.tmpFolder)
 
     private var running = true
-    private val server = ServerSocket(port).apply {
-        soTimeout = 200
-    }
+    private val server = ServerSocket(port).apply { soTimeout = 200 }
+
     private var slaves: MutableList<Slave> = mutableListOf()
-    private var slaveChecker: Job = GlobalScope.launch { slaveMonitor() }
-
-
-    private suspend fun slaveMonitor() {
+    private var slaveMonitor: Job = GlobalScope.launch {
         while (running) {
-            delay(5000)
-            println("[Watch]: Connected: ${slaves.size} | Alive: ${slaves.filter { it.alive }.size}")
-//            @TODO replace it
+            delay(1000)
+            println("[Watch]: Connected: ${slaves.size} | Alive: ${slaves.filter { it.isAlive() }.size}")
+//            @TODO temporary dead slaves filtering
             synchronized(slaves) {
-                slaves.filterNot { it.alive }
+                slaves.filterNot { it.isAlive() }
                         .forEach { slaves.remove(it) }
             }
         }
     }
 
 
-    suspend fun map(code: ByteArray) {
-        if (slaves.isEmpty()) return
+    suspend fun <K, R> mapReduce(mapperName: String, reducerName: String, code: ByteArray): Result<Map<K, R>> {
+        if (slaves.isEmpty()) return Result.success(emptyMap())
+
         val id = UUID.randomUUID().toString()
 
-        val jarFile = File.createTempFile("master", id, tmpFolder).also {
-            it.deleteOnExit()
-            it.writeBytes(code)
-        }
-        val reducer = CodeLoader(jarFile).loadReducer<String, Int, Int>("com.ucu.SizeReducer")!!
-        val results = slaves
-                .map { GlobalScope.async { it.map(Request(id, code, "com.ucu.SizeCounter")) } }
+        val reducer = loadReducer<K, R>(code, reducerName)
+
+        val mapResults = slaves
+                .map { GlobalScope.async { it.map<K, R>(Request(id, code, mapperName)) } }
                 .map { it.await() }.toList()
 
-        if (results.any { it.isFailure }) {
-            println("One or more node failed to handle request")
+        if (mapResults.any { it.isFailure }) {
+            println("[MapReduce]: One or more node failed to handle request")
+            return Result.failure(RuntimeException("One or more nodes failed to process request"))
         }
 
-        val groupped = results
+        val res = mapResults
                 .map { it.getOrThrow() }
                 .flatMap { it.data.toList() }
                 .groupBy({ it.first }, { it.second })
+                .map { reducer.reduce(it.key, it.value) }
                 .toMap()
 
-        val result = groupped.flatMap { reducer.reduce(it.key, it.value) }.toList()
-        println(result)
+        return Result.success(res)
 
+    }
+
+    private fun <K, R> loadReducer(code: ByteArray, reducerName: String): Reducer<K, R, R> {
+        val jarFile = File.createTempFile("master", UUID.randomUUID().toString(), tmpFolder).also {
+            it.deleteOnExit()
+            it.writeBytes(code)
+        }
+        val reducer = CodeLoader(jarFile).loadReducer<K, R, R>(reducerName)!!
         jarFile.delete()
-
+        return reducer
     }
 
     suspend fun listen() {
         while (running) {
-//            println("[Listen]: Trying to accept connection")
             delay(50)
             kotlin.runCatching { server.accept() }.onSuccess {
                 val slave = Slave(it)
@@ -77,8 +80,9 @@ class Master(port: Int) {
 
     fun stop() {
         running = false
-        slaveChecker.cancel()
+        slaveMonitor.cancel()
         server.close()
+        slaves.forEach { it.terminate() }
     }
 }
 

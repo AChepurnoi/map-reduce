@@ -1,0 +1,39 @@
+version: "3"
+services:
+  master:
+    image: mr-master:latest
+    build:
+      dockerfile: Dockerfile
+      context: .
+      args:
+        JARFILE: master/build/libs/master-1.jar
+    environment:
+      JAR_PATH: /data/example-app-1.jar
+      PORT: 12000
+      MAPPER_CLASSNAME: com.ucu.SizeCounter
+      REDUCER_CLASSNAME: com.ucu.SizeReducer
+    volumes:
+      - ~/programming/map-reduce/example-app/build/libs:/data
+
+  slave-one:
+    image: mr-slave:latest
+    build:
+      dockerfile: Dockerfile
+      context: .
+      args:
+        JARFILE: slave/build/libs/slave-1.jar
+    environment:
+      MASTER_HOST: master
+      NODE_DATA: SASHA:DOG|IVAN:CAT
+
+  slave-two:
+    image: mr-slave:latest
+    build:
+      dockerfile: Dockerfile
+      context: .
+      args:
+        JARFILE: slave/build/libs/slave-1.jar
+    environment:
+      MASTER_HOST: master
+      MASTER_PORT: 12000
+      NODE_DATA: SASHA:HOUSE|IVAN:CAR
