@@ -26,6 +26,7 @@ The format of data is `KEY:VALUE|KEY:VALUE` where `:` is delimiter between key a
 * Handling cluster splitting and master downtime
 * Handling slave outages (Complex cases)
 * Handling network delivery issues
+* Repartitioning
 
 
 ### Implementation
