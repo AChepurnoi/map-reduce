@@ -2,6 +2,7 @@ version: "3"
 services:
   master:
     image: mr-master:latest
+    container_name: master
     build:
       dockerfile: Dockerfile
       context: .
@@ -13,10 +14,13 @@ services:
       MAPPER_CLASSNAME: com.ucu.SizeCounter
       REDUCER_CLASSNAME: com.ucu.SizeReducer
     volumes:
-      - ~/programming/map-reduce/example-app/build/libs:/data
+    - ./example-app/build/libs:/data
 
   slave-one:
     image: mr-slave:latest
+    container_name: slave-one
+    depends_on:
+    - master
     build:
       dockerfile: Dockerfile
       context: .
@@ -28,6 +32,9 @@ services:
 
   slave-two:
     image: mr-slave:latest
+    container_name: slave-two
+    depends_on:
+    - master
     build:
       dockerfile: Dockerfile
       context: .
@@ -36,4 +43,4 @@ services:
     environment:
       MASTER_HOST: master
       MASTER_PORT: 12000
-      NODE_DATA: SASHA:HOUSE|IVAN:CAR
+      NODE_DATA: SASHA:HOUSE|IVAN:CAR|JOHN:TEST

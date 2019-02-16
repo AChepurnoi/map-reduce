@@ -1,3 +1,4 @@
+[![Build Status](https://travis-ci.com/AChepurnoi/map-reduce.svg?branch=master)](https://travis-ci.com/AChepurnoi/map-reduce)
 ## Map reduce implementation
 The goal of this implementation is to build a simplified map-reduce implementation
 ### How to run

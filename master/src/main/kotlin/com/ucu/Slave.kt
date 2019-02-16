@@ -36,7 +36,6 @@ class Slave(s: Socket) {
             delay(100)
             kotlin.runCatching { input.readObject() as Message }
                     .onSuccess { mailbox.send(it) }
-                    .onFailure { println("[Listener]: Error $it") }
         }
     }
 
